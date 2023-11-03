@@ -1,8 +1,12 @@
 use std::convert::TryInto;
 
-use ecdsa::{
+// use ecdsa::{
+//     elliptic_curve::{sec1::ToEncodedPoint, Field},
+//     hazmat::{SignPrimitive, VerifyPrimitive},
+// };
+use k256::{
+    ecdsa::hazmat::{SignPrimitive, VerifyPrimitive},
     elliptic_curve::{sec1::ToEncodedPoint, Field},
-    hazmat::{SignPrimitive, VerifyPrimitive},
 };
 use message_digest::MessageDigest;
 use tracing::error;
@@ -71,15 +75,13 @@ pub fn sign(
     let rng =
         rng::rng_seed_ecdsa_ephemeral_scalar(ECDSA_TAG, SIGN_TAG, signing_key, &message_digest)?;
     let ephemeral_scalar = k256::Scalar::random(rng);
-
-    let signature = k256_serde::Signature::from(
-        signing_key
-            .try_sign_prehashed(&ephemeral_scalar, &message_digest)
-            .map_err(|_| {
-                error!("failure to sign");
-                TofnFatal
-            })?,
-    );
+    let (sig, _) = signing_key
+        .try_sign_prehashed(ephemeral_scalar, &message_digest.to_bytes())
+        .map_err(|_| {
+            error!("failure to sign");
+            TofnFatal
+        })?;
+    let signature = k256_serde::Signature::from(sig);
 
     Ok(signature.to_bytes())
 }
@@ -98,7 +100,7 @@ pub fn verify(
     Ok(verifying_key
         .as_ref()
         .to_affine()
-        .verify_prehashed(&hashed_msg, &signature)
+        .verify_prehashed(&hashed_msg.to_bytes(), &signature)
         .is_ok())
 }
 

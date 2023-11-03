@@ -6,7 +6,8 @@ use crate::{
     },
     gg20::keygen::KeygenShareId,
 };
-use ecdsa::hazmat::FromDigest;
+use k256::elliptic_curve::PrimeField;
+// use ecdsa::hazmat::FromDigest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::warn;
@@ -31,14 +32,14 @@ pub struct Proof {
 
 /// Compute the challenge for Schnorr zk proof
 fn compute_challenge(stmt: &Statement, alpha: &k256::ProjectivePoint) -> k256::Scalar {
-    k256::Scalar::from_digest(
-        Sha256::new()
-            .chain(constants::SCHNORR_PROOF_TAG.to_be_bytes())
-            .chain(stmt.prover_id.to_bytes())
-            .chain(k256_serde::point_to_bytes(stmt.base))
-            .chain(k256_serde::point_to_bytes(stmt.target))
-            .chain(k256_serde::point_to_bytes(alpha)),
-    )
+    let sha256 = Sha256::new()
+        .chain(constants::SCHNORR_PROOF_TAG.to_be_bytes())
+        .chain(stmt.prover_id.to_bytes())
+        .chain(k256_serde::point_to_bytes(stmt.base))
+        .chain(k256_serde::point_to_bytes(stmt.target))
+        .chain(k256_serde::point_to_bytes(alpha));
+    // k256::Scalar::from_digest(sha256)
+    k256::Scalar::from_repr(sha256.finalize()).unwrap()
 }
 
 // statement (base, target), witness (scalar)
@@ -77,7 +78,7 @@ pub(crate) mod malicious {
 
     pub fn corrupt_proof(proof: &Proof) -> Proof {
         Proof {
-            t: (proof.t.as_ref() + k256::Scalar::one()).into(),
+            t: (proof.t.as_ref() + k256::Scalar::ONE).into(),
             ..proof.clone()
         }
     }
@@ -85,8 +86,10 @@ pub(crate) mod malicious {
 
 #[cfg(test)]
 mod tests {
+    use k256::elliptic_curve::{Field, Group};
+
     use super::*;
-    use ecdsa::elliptic_curve::{Field, Group};
+    // use ecdsa::elliptic_curve::{Field, Group};
 
     #[test]
     fn basic_correctness() {
@@ -121,7 +124,7 @@ mod tests {
 
         // test: bad witness
         let bad_wit = Witness {
-            scalar: &(*wit.scalar + k256::Scalar::one()),
+            scalar: &(*wit.scalar + k256::Scalar::ONE),
         };
         let bad_proof = prove(&stmt, &bad_wit);
         assert!(!verify(&stmt, &bad_proof));

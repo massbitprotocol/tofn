@@ -6,7 +6,8 @@ use crate::{
     },
     gg20::sign::SignShareId,
 };
-use ecdsa::hazmat::FromDigest;
+use k256::elliptic_curve::PrimeField;
+// use ecdsa::hazmat::FromDigest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::warn;
@@ -37,17 +38,17 @@ fn compute_challenge(
     alpha1: &k256_serde::ProjectivePoint,
     alpha2: &k256_serde::ProjectivePoint,
 ) -> k256::Scalar {
-    k256::Scalar::from_digest(
-        Sha256::new()
-            .chain(constants::CHAUM_PEDERSEN_PROOF_TAG.to_be_bytes())
-            .chain(stmt.prover_id.to_bytes())
-            .chain(k256_serde::point_to_bytes(stmt.base1))
-            .chain(k256_serde::point_to_bytes(stmt.base2))
-            .chain(k256_serde::point_to_bytes(stmt.target1))
-            .chain(k256_serde::point_to_bytes(stmt.target2))
-            .chain(alpha1.to_bytes())
-            .chain(alpha2.to_bytes()),
-    )
+    let sha256 = Sha256::new()
+        .chain(constants::CHAUM_PEDERSEN_PROOF_TAG.to_be_bytes())
+        .chain(stmt.prover_id.to_bytes())
+        .chain(k256_serde::point_to_bytes(stmt.base1))
+        .chain(k256_serde::point_to_bytes(stmt.base2))
+        .chain(k256_serde::point_to_bytes(stmt.target1))
+        .chain(k256_serde::point_to_bytes(stmt.target2))
+        .chain(alpha1.to_bytes())
+        .chain(alpha2.to_bytes());
+    //k256::Scalar::from_digest(sha256)
+    k256::Scalar::from_repr(sha256.finalize()).unwrap()
 }
 
 // statement (base1, base2, target1, target2), witness (scalar)
@@ -109,7 +110,7 @@ pub(crate) mod malicious {
 
     pub fn corrupt_proof(proof: &Proof) -> Proof {
         Proof {
-            t: (proof.t.as_ref() + k256::Scalar::one()).into(),
+            t: (proof.t.as_ref() + k256::Scalar::ONE).into(),
             ..proof.clone()
         }
     }
@@ -117,8 +118,10 @@ pub(crate) mod malicious {
 
 #[cfg(test)]
 mod tests {
+    use k256::elliptic_curve::{Field, Group};
+
     use super::*;
-    use ecdsa::elliptic_curve::{Field, Group};
+    //use ecdsa::elliptic_curve::{Field, Group};
 
     #[test]
     fn basic_correctness() {
@@ -160,7 +163,7 @@ mod tests {
 
         // test: bad witness
         let bad_wit = Witness {
-            scalar: &(*wit.scalar + k256::Scalar::one()),
+            scalar: &(*wit.scalar + k256::Scalar::ONE),
         };
         let bad_proof = prove(&stmt, &bad_wit);
         assert!(!verify(&stmt, &bad_proof));

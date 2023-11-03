@@ -35,7 +35,7 @@ impl Vss {
             coeff_commits: self
                 .secret_coeffs
                 .iter()
-                .map(|coeff| (k256::ProjectivePoint::generator() * coeff).into())
+                .map(|coeff| (k256::ProjectivePoint::GENERATOR * coeff).into())
                 .collect(),
         }
     }
@@ -52,9 +52,7 @@ impl Vss {
                         .secret_coeffs
                         .iter()
                         .rev()
-                        .fold(k256::Scalar::zero(), |acc, coeff| {
-                            acc * index_scalar + coeff
-                        })
+                        .fold(k256::Scalar::ZERO, |acc, coeff| acc * index_scalar + coeff)
                         .into(),
                     index,
                 }
@@ -78,7 +76,7 @@ impl Commit {
         self.coeff_commits
             .iter()
             .rev()
-            .fold(k256::ProjectivePoint::identity(), |acc, p| {
+            .fold(k256::ProjectivePoint::IDENTITY, |acc, p| {
                 acc * index_scalar + p.as_ref()
             })
     }
@@ -97,7 +95,7 @@ impl Commit {
 
     pub fn validate_share(&self, share: &Share) -> bool {
         self.validate_share_commit(
-            &(k256::ProjectivePoint::generator() * share.get_scalar()),
+            &(k256::ProjectivePoint::GENERATOR * share.get_scalar()),
             share.get_index(),
         )
     }
@@ -147,7 +145,7 @@ pub fn recover_secret_commit(
 
     let indices: Vec<usize> = share_commits.iter().map(|s| s.index).collect();
     share_commits.iter().enumerate().try_fold(
-        k256::ProjectivePoint::identity(),
+        k256::ProjectivePoint::IDENTITY,
         |sum, (i, share_commit)| {
             Ok(sum + share_commit.point.as_ref() * &lagrange_coefficient(i, &indices)?)
         },
@@ -161,7 +159,7 @@ pub fn lagrange_coefficient(i: usize, indices: &[usize]) -> TofnResult<k256::Sca
         .collect();
 
     let (numerator, denominator) = scalars.iter().enumerate().fold(
-        (k256::Scalar::one(), k256::Scalar::one()),
+        (k256::Scalar::ONE, k256::Scalar::ONE),
         |(num, den), (j, scalar_j)| {
             if j == i {
                 (num, den)
@@ -197,7 +195,7 @@ pub(crate) fn recover_secret(shares: &[Share]) -> k256::Scalar {
     shares
         .iter()
         .enumerate()
-        .fold(k256::Scalar::zero(), |sum, (i, share)| {
+        .fold(k256::Scalar::ZERO, |sum, (i, share)| {
             sum + share.scalar.as_ref() * &lagrange_coefficient(i, &indices).unwrap()
         })
 }
@@ -271,7 +269,7 @@ mod tests {
         let shuffled_share_commits: Vec<ShareCommit> = shuffled_shares
             .iter()
             .map(|share| ShareCommit {
-                point: (k256::ProjectivePoint::generator() * share.get_scalar()).into(),
+                point: (k256::ProjectivePoint::GENERATOR * share.get_scalar()).into(),
                 index: share.get_index(),
             })
             .collect();
@@ -300,7 +298,7 @@ mod tests {
 
         let recovered_secret = additive_shares
             .iter()
-            .fold(k256::Scalar::zero(), |acc, share| acc + share.get_scalar());
+            .fold(k256::Scalar::ZERO, |acc, share| acc + share.get_scalar());
         assert_eq!(recovered_secret, *vss.get_secret());
     }
 }

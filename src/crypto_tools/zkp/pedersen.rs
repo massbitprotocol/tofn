@@ -7,10 +7,9 @@ use crate::{
     gg20::sign::SignShareId,
     sdk::api::{TofnFatal, TofnResult},
 };
-use ecdsa::{
-    elliptic_curve::{sec1::FromEncodedPoint, Field},
-    hazmat::FromDigest,
-};
+use k256::elliptic_curve::{sec1::FromEncodedPoint, Field, PrimeField};
+// use ecdsa::hazmat::FromDigest;
+// use ecdsa::elliptic_curve::{sec1::FromEncodedPoint, Field};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{error, warn};
@@ -79,7 +78,7 @@ pub fn commit_with_randomness(
     msg: &k256::Scalar,
     randomness: &k256::Scalar,
 ) -> k256::ProjectivePoint {
-    (k256::ProjectivePoint::generator() * msg) + (alternate_generator() * randomness)
+    (k256::ProjectivePoint::GENERATOR * msg) + (alternate_generator() * randomness)
 }
 
 // statement (commitment), witness (msg, randomness)
@@ -125,16 +124,16 @@ fn compute_challenge(
     alpha: &k256::ProjectivePoint,
     beta: Option<&k256::ProjectivePoint>,
 ) -> k256::Scalar {
-    k256::Scalar::from_digest(
-        Sha256::new()
-            .chain(constants::PEDERSEN_PROOF_TAG.to_be_bytes())
-            .chain(stmt.prover_id.to_bytes())
-            .chain(k256_serde::point_to_bytes(stmt.commit))
-            .chain(&msg_g_g.map_or([0; 33], |(msg_g, _)| k256_serde::point_to_bytes(msg_g)))
-            .chain(&msg_g_g.map_or([0; 33], |(_, g)| k256_serde::point_to_bytes(g)))
-            .chain(k256_serde::point_to_bytes(alpha))
-            .chain(&beta.map_or([0; 33], |beta| k256_serde::point_to_bytes(beta))),
-    )
+    let sha256 = Sha256::new()
+        .chain(constants::PEDERSEN_PROOF_TAG.to_be_bytes())
+        .chain(stmt.prover_id.to_bytes())
+        .chain(k256_serde::point_to_bytes(stmt.commit))
+        .chain(&msg_g_g.map_or([0; 33], |(msg_g, _)| k256_serde::point_to_bytes(msg_g)))
+        .chain(&msg_g_g.map_or([0; 33], |(_, g)| k256_serde::point_to_bytes(g)))
+        .chain(k256_serde::point_to_bytes(alpha))
+        .chain(&beta.map_or([0; 33], |beta| k256_serde::point_to_bytes(beta)));
+    //k256::Scalar::from_digest(sha256)
+    k256::Scalar::from_repr(sha256.finalize()).unwrap()
 }
 
 #[allow(clippy::many_single_char_names)]
@@ -215,7 +214,7 @@ pub mod malicious {
 
     pub fn corrupt_proof(proof: &Proof) -> Proof {
         Proof {
-            u: k256_serde::Scalar::from(proof.u.as_ref() + k256::Scalar::one()),
+            u: k256_serde::Scalar::from(proof.u.as_ref() + k256::Scalar::ONE),
             ..proof.clone()
         }
     }
@@ -223,7 +222,7 @@ pub mod malicious {
     pub fn corrupt_proof_wc(proof: &ProofWc) -> ProofWc {
         ProofWc {
             beta: k256_serde::ProjectivePoint::from(
-                k256::ProjectivePoint::generator() + proof.beta.as_ref(),
+                k256::ProjectivePoint::GENERATOR + proof.beta.as_ref(),
             ),
             ..proof.clone()
         }
@@ -232,7 +231,8 @@ pub mod malicious {
 
 #[cfg(test)]
 mod tests {
-    use ecdsa::elliptic_curve::group::prime::PrimeCurveAffine;
+    //use ecdsa::elliptic_curve::group::prime::PrimeCurveAffine;
+    use k256::elliptic_curve::{group::prime::PrimeCurveAffine, sec1::FromEncodedPoint, Field};
 
     use super::{
         malicious::{corrupt_proof, corrupt_proof_wc},
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn basic_correctness() {
         let msg = &k256::Scalar::random(rand::thread_rng());
-        let g = &k256::ProjectivePoint::generator();
+        let g = &k256::ProjectivePoint::GENERATOR;
         let msg_g = &(g * msg);
         let (commit, randomness) = &commit(msg);
 
@@ -292,7 +292,7 @@ mod tests {
 
         // test: bad witness
         let bad_wit = &Witness {
-            msg: &(*wit.msg + k256::Scalar::one()),
+            msg: &(*wit.msg + k256::Scalar::ONE),
             ..*wit
         };
         let bad_proof = prove(stmt, bad_wit);

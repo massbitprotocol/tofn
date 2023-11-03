@@ -14,7 +14,8 @@ use crate::{
     gg20::sign::SignShareId,
     sdk::api::{TofnFatal, TofnResult},
 };
-use ecdsa::hazmat::FromDigest;
+use k256::elliptic_curve::PrimeField;
+// use ecdsa::hazmat::FromDigest;
 use libpaillier::unknown_order::BigNumber;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -113,21 +114,20 @@ impl ZkSetup {
         u1: Option<&k256::ProjectivePoint>,
         w: &BigNumber,
     ) -> k256::Scalar {
-        let e = k256::Scalar::from_digest(
-            Sha256::new()
-                .chain(tag.to_be_bytes())
-                .chain(stmt.prover_id.to_bytes())
-                .chain(stmt.verifier_id.to_bytes())
-                .chain(stmt.ek.0.n().to_bytes())
-                .chain(stmt.ciphertext.0.to_bytes())
-                .chain(msg_g_g.map_or([0; 33], |(msg_g, _)| k256_serde::point_to_bytes(msg_g)))
-                .chain(msg_g_g.map_or([0; 33], |(_, g)| k256_serde::point_to_bytes(g)))
-                .chain(z.to_bytes())
-                .chain(u.0.to_bytes())
-                .chain(u1.map_or([0; 33], |u1| k256_serde::point_to_bytes(u1)))
-                .chain(w.to_bytes()),
-        );
-
+        let sha256 = Sha256::new()
+            .chain(tag.to_be_bytes())
+            .chain(stmt.prover_id.to_bytes())
+            .chain(stmt.verifier_id.to_bytes())
+            .chain(stmt.ek.0.n().to_bytes())
+            .chain(stmt.ciphertext.0.to_bytes())
+            .chain(msg_g_g.map_or([0; 33], |(msg_g, _)| k256_serde::point_to_bytes(msg_g)))
+            .chain(msg_g_g.map_or([0; 33], |(_, g)| k256_serde::point_to_bytes(g)))
+            .chain(z.to_bytes())
+            .chain(u.0.to_bytes())
+            .chain(u1.map_or([0; 33], |u1| k256_serde::point_to_bytes(u1)))
+            .chain(w.to_bytes());
+        //let e = k256::Scalar::from_digest(sha256);
+        let e = k256::Scalar::from_repr(sha256.finalize()).unwrap();
         e
     }
 
@@ -338,7 +338,7 @@ pub mod malicious {
     pub fn corrupt_proof_wc(proof_wc: &ProofWc) -> ProofWc {
         let proof_wc = proof_wc.clone();
         ProofWc {
-            u1: ProjectivePoint::from(k256::ProjectivePoint::generator() + proof_wc.u1.as_ref()),
+            u1: ProjectivePoint::from(k256::ProjectivePoint::GENERATOR + proof_wc.u1.as_ref()),
             ..proof_wc
         }
     }
@@ -354,7 +354,8 @@ mod tests {
             Statement, StatementWc, Witness,
         },
     };
-    use ecdsa::elliptic_curve::Field;
+    use k256::elliptic_curve::Field;
+    //use ecdsa::elliptic_curve::Field;
     use tracing_test::traced_test; // enable logs in tests
 
     #[test]
@@ -363,7 +364,7 @@ mod tests {
         // create a (statement, witness) pair
         let (ek, _dk) = &keygen_unsafe(&mut rand::thread_rng()).unwrap();
         let msg = &k256::Scalar::random(rand::thread_rng());
-        let g = &k256::ProjectivePoint::generator();
+        let g = &k256::ProjectivePoint::GENERATOR;
         let msg_g = &(g * msg);
         let (ciphertext, randomness) = &ek.encrypt(&msg.into());
         let prover_id = TypedUsize::from_usize(10);
@@ -417,7 +418,7 @@ mod tests {
         assert!(!zkp.verify_range_proof_wc(stmt_wc, &bad_proof_wc));
         // test: bad witness
         let bad_wit = &Witness {
-            msg: &(*wit.msg + k256::Scalar::one()),
+            msg: &(*wit.msg + k256::Scalar::ONE),
             ..*wit
         };
         let bad_proof = zkp.range_proof(stmt, bad_wit);

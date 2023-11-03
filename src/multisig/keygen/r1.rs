@@ -7,7 +7,8 @@ use crate::{
         implementer_api::{serialize, ProtocolBuilder, RoundBuilder},
     },
 };
-use ecdsa::elliptic_curve::Field;
+//use ecdsa::elliptic_curve::Field;
+use k256::elliptic_curve::Field;
 use serde::{Deserialize, Serialize};
 
 use super::{r2, KeygenPartyShareCounts, KeygenProtocolBuilder, KeygenShareId};

@@ -16,8 +16,10 @@ hmac = "0.11"
 zeroize = { version = "1.4", features = ["zeroize_derive"] }
 
 # k256 baggage
-k256 = { version = "0.9", features = ["ecdsa", "zeroize"], default-features = false }
-ecdsa = { version = "0.12", features = ["digest"], default-features = false } # needed only for FromDigest trait
+# k256 = { version = "0.9", features = ["ecdsa", "zeroize"], default-features = false }
+#ecdsa = { version = "0.12", features = ["digest"], default-features = false } # needed only for FromDigest trait
+k256 = { version = "0.13" }
+ecdsa = { version = "0.14", features = ["digest"], default-features = false } # needed only for FromDigest trait
 rand = "0.8"
 sha2 = { version = "0.9", features = ["std", "asm"], default-features = false }
 sha3 = { version = "0.9", default-features = false }

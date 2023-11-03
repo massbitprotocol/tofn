@@ -20,8 +20,11 @@ use crate::{
         implementer_api::{serialize, Executer, ProtocolBuilder, ProtocolInfo, RoundBuilder},
     },
 };
-use ecdsa::elliptic_curve::sec1::ToEncodedPoint;
-use k256::{ProjectivePoint, Scalar};
+//use ecdsa::elliptic_curve::sec1::ToEncodedPoint;
+use k256::{
+    elliptic_curve::{sec1::ToEncodedPoint, PrimeField},
+    ProjectivePoint, Scalar,
+};
 use tracing::{error, warn};
 
 use super::super::{r1, r2, r3, r5, r6, r8, Peers};
@@ -140,7 +143,7 @@ impl Executer for R7Happy {
         // check for failure of type 7 from section 4.2 of https://eprint.iacr.org/2020/540.pdf
         let S_i_sum = bcasts_in
             .iter()
-            .fold(ProjectivePoint::identity(), |acc, (_, bcast)| {
+            .fold(ProjectivePoint::IDENTITY, |acc, (_, bcast)| {
                 acc + bcast.S_i.as_ref()
             });
 
@@ -167,9 +170,9 @@ impl Executer for R7Happy {
             let proof = chaum_pedersen::prove(
                 &chaum_pedersen::Statement {
                     prover_id: my_sign_id,
-                    base1: &k256::ProjectivePoint::generator(),
+                    base1: &k256::ProjectivePoint::GENERATOR,
                     base2: &self.R,
-                    target1: &(k256::ProjectivePoint::generator() * self.sigma_i),
+                    target1: &(k256::ProjectivePoint::GENERATOR * self.sigma_i),
                     target2: bcasts_in.get(my_sign_id)?.S_i.as_ref(),
                 },
                 &chaum_pedersen::Witness {
@@ -201,16 +204,16 @@ impl Executer for R7Happy {
 
         // compute r, s_i
         // reference for r: https://docs.rs/k256/0.8.1/src/k256/ecdsa/sign.rs.html#223-225
-        let r = k256::Scalar::from_bytes_reduced(
-            self.R
-                .to_affine()
-                .to_encoded_point(true)
-                .x()
-                .ok_or_else(|| {
-                    error!("Invalid R point");
-                    TofnFatal
-                })?,
-        );
+        let proj_point = *self
+            .R
+            .to_affine()
+            .to_encoded_point(true)
+            .x()
+            .ok_or_else(|| {
+                error!("Invalid R point");
+                TofnFatal
+            })?;
+        let r = k256::Scalar::from_repr(proj_point).unwrap();
 
         let s_i = self.msg_to_sign * self.k_i + r * self.sigma_i;
 
@@ -257,7 +260,7 @@ mod malicious {
         ) -> k256::Scalar {
             if let R7BadSI = self.behaviour {
                 log_confess_info(sign_id, &self.behaviour, "");
-                s_i += k256::Scalar::one();
+                s_i += k256::Scalar::ONE;
             }
             s_i
         }

@@ -5,16 +5,15 @@
 //! [Implementing Serialize · Serde](https://serde.rs/impl-serialize.html)
 //! [Implementing Deserialize · Serde](https://serde.rs/impl-deserialize.html)
 
-use ecdsa::elliptic_curve::{
-    consts::U33, generic_array::GenericArray, group::GroupEncoding, Field,
-};
+use crate::sdk::api::BytesVec;
+use ecdsa::elliptic_curve::{consts::U33, generic_array::GenericArray};
+// use ecdsa::elliptic_curve::{group::GroupEncoding, Field};
+use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
+use k256::elliptic_curve::{Field as _, PrimeField};
 use rand::{CryptoRng, RngCore};
 use serde::{de, de::Error, de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::Zeroize;
-
-use crate::sdk::api::BytesVec;
-
 /// A wrapper for a random scalar value that is zeroized on drop
 /// TODO why not just do this for Scalar below?
 #[derive(Debug, Serialize, Deserialize, PartialEq, Zeroize)]
@@ -76,10 +75,14 @@ impl<'de> Deserialize<'de> for Scalar {
     {
         let bytes: [u8; 32] = Deserialize::deserialize(deserializer)?;
         let field_bytes = k256::FieldBytes::from(bytes);
-        let scalar = k256::Scalar::from_bytes_reduced(&field_bytes);
-
+        //let scalar = k256::Scalar::from_bytes_reduced(&field_bytes);
+        let scalar = k256::Scalar::from_repr(field_bytes);
         // ensure bytes encodes an integer less than the secp256k1 modulus
         // if not then scalar.to_bytes() will differ from bytes
+        if scalar.is_none().into() {
+            return Err(D::Error::custom("integer exceeds secp256k1 modulus"));
+        }
+        let scalar = scalar.unwrap();
         if field_bytes != scalar.to_bytes() {
             return Err(D::Error::custom("integer exceeds secp256k1 modulus"));
         }
@@ -187,9 +190,10 @@ impl ProjectivePoint {
 
     /// Decode from a SEC1-encoded curve point.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        Some(Self(k256::ProjectivePoint::from_encoded_point(
-            &k256::EncodedPoint::from_bytes(bytes).ok()?,
-        )?))
+        Some(Self(
+            k256::ProjectivePoint::from_encoded_point(&k256::EncodedPoint::from_bytes(bytes).ok()?)
+                .unwrap(),
+        ))
     }
 }
 
@@ -226,7 +230,7 @@ impl From<&k256::ProjectivePoint> for ProjectivePoint {
 
 impl From<&SecretScalar> for ProjectivePoint {
     fn from(s: &SecretScalar) -> Self {
-        ProjectivePoint(k256::ProjectivePoint::generator() * s.0 .0)
+        ProjectivePoint(k256::ProjectivePoint::GENERATOR * s.0 .0)
     }
 }
 
@@ -246,9 +250,9 @@ impl<'de> Deserialize<'de> for ProjectivePoint {
     {
         Ok(ProjectivePoint(
             k256::ProjectivePoint::from_encoded_point(&EncodedPoint::deserialize(deserializer)?.0)
-                .ok_or_else(|| {
-                    D::Error::custom("SEC1-encoded point is not on curve secp256k (K-256)")
-                })?,
+                .unwrap(), // .ok_or_else(|| {
+                           //     D::Error::custom("SEC1-encoded point is not on curve secp256k (K-256)")
+                           // })?,
         ))
     }
 }
@@ -267,8 +271,11 @@ fn to_array33(g: GenericArray<u8, U33>) -> [u8; 33] {
 mod tests {
     use super::*;
     use bincode::Options;
-    use ecdsa::hazmat::{SignPrimitive, VerifyPrimitive};
-    use k256::elliptic_curve::Field;
+    //use ecdsa::hazmat::{SignPrimitive, VerifyPrimitive};
+    use k256::{
+        ecdsa::hazmat::{SignPrimitive, VerifyPrimitive},
+        elliptic_curve::Field,
+    };
     use serde::de::DeserializeOwned;
     use std::fmt::Debug;
 
@@ -277,16 +284,16 @@ mod tests {
         let s = k256::Scalar::random(rand::thread_rng());
         basic_round_trip_impl::<_, Scalar>(s, Some(32));
 
-        let p = k256::ProjectivePoint::generator() * s;
+        let p = k256::ProjectivePoint::GENERATOR * s;
         basic_round_trip_impl::<_, ProjectivePoint>(p, None);
 
         let hashed_msg = k256::Scalar::random(rand::thread_rng());
         let ephemeral_scalar = k256::Scalar::random(rand::thread_rng());
-        let signature = s
-            .try_sign_prehashed(&ephemeral_scalar, &hashed_msg)
+        let (signature, _) = s
+            .try_sign_prehashed(ephemeral_scalar, &hashed_msg.to_bytes())
             .unwrap();
         p.to_affine()
-            .verify_prehashed(&hashed_msg, &signature)
+            .verify_prehashed(&hashed_msg.to_bytes(), &signature)
             .unwrap();
         basic_round_trip_impl::<_, Signature>(signature, None);
 
